@@ -5,25 +5,82 @@ import MyHeader from '../components/MyHeader.js'
 import firebase from 'firebase';
 import db from '../config.js'
 
-export default class MyBartersScreen extends Component {
-  static navigationOptions = { header: null };
-
+export default class MyBarterScreen extends Component {
    constructor(){
      super()
      this.state = {
-       userId : firebase.auth().currentUser.email,
+       donorId : firebase.auth().currentUser.email,
+       donorName : "",
        allBarters : []
      }
      this.requestRef= null
    }
 
+   static navigationOptions = { header: null };
+
+   getDonorDetails=(donorId)=>{
+     db.collection("users").where("email_id","==", donorId).get()
+     .then((snapshot)=>{
+       snapshot.forEach((doc) => {
+         this.setState({
+           "donorName" : doc.data().first_name + " " + doc.data().last_name
+         })
+       });
+     })
+   }
 
    getAllBarters =()=>{
-     this.requestRef = db.collection("all_Barters").where("donor_id" ,'==', this.state.userId)
+     this.requestRef = db.collection("all_Barters").where("donor_id" ,'==', this.state.donorId)
      .onSnapshot((snapshot)=>{
-       var allBarters = snapshot.docs.map(document => document.data());
+       var allBarters = []
+       snapshot.docs.map((doc) =>{
+         var donation = doc.data()
+         donation["doc_id"] = doc.id
+         allBarters.push(donation)
+       });
        this.setState({
-         allBarters : allBarters,
+         allBarters : allBarters
+       });
+     })
+   }
+
+   sendBook=(bookDetails)=>{
+     if(bookDetails.request_status === "Book Sent"){
+       var requestStatus = "Donor Interested"
+       db.collection("all_Barters").doc(bookDetails.doc_id).update({
+         "request_status" : "Donor Interested"
+       })
+       this.sendNotification(bookDetails,requestStatus)
+     }
+     else{
+       var requestStatus = "Book Sent"
+       db.collection("all_Barters").doc(bookDetails.doc_id).update({
+         "request_status" : "Book Sent"
+       })
+       this.sendNotification(bookDetails,requestStatus)
+     }
+   }
+
+   sendNotification=(bookDetails,requestStatus)=>{
+     var requestId = bookDetails.request_id
+     var donorId = bookDetails.donor_id
+     db.collection("all_notifications")
+     .where("request_id","==", requestId)
+     .where("donor_id","==",donorId)
+     .get()
+     .then((snapshot)=>{
+       snapshot.forEach((doc) => {
+         var message = ""
+         if(requestStatus === "Book Sent"){
+           message = this.state.donorName + " sent you book"
+         }else{
+            message =  this.state.donorName  + " has shown interest in donating the book"
+         }
+         db.collection("all_notifications").doc(doc.id).update({
+           "message": message,
+           "notification_status" : "unread",
+           "date"                : firebase.firestore.FieldValue.serverTimestamp()
+         })
        });
      })
    }
@@ -33,13 +90,25 @@ export default class MyBartersScreen extends Component {
    renderItem = ( {item, i} ) =>(
      <ListItem
        key={i}
-       title={item.item_name}
+       title={item.book_name}
        subtitle={"Requested By : " + item.requested_by +"\nStatus : " + item.request_status}
        leftElement={<Icon name="book" type="font-awesome" color ='#696969'/>}
        titleStyle={{ color: 'black', fontWeight: 'bold' }}
        rightElement={
-           <TouchableOpacity style={styles.button}>
-             <Text style={{color:'#ffff'}}>Exchange</Text>
+           <TouchableOpacity
+            style={[
+              styles.button,
+              {
+                backgroundColor : item.request_status === "Book Sent" ? "green" : "#ff5722"
+              }
+            ]}
+            onPress = {()=>{
+              this.sendBook(item)
+            }}
+           >
+             <Text style={{color:'#ffff'}}>{
+               item.request_status === "Book Sent" ? "Book Sent" : "Send Book"
+             }</Text>
            </TouchableOpacity>
          }
        bottomDivider
@@ -48,6 +117,7 @@ export default class MyBartersScreen extends Component {
 
 
    componentDidMount(){
+     this.getDonorDetails(this.state.donorId)
      this.getAllBarters()
    }
 
@@ -64,7 +134,7 @@ export default class MyBartersScreen extends Component {
              this.state.allBarters.length === 0
              ?(
                <View style={styles.subtitle}>
-                 <Text style={{ fontSize: 20}}>List of all Barters</Text>
+                 <Text style={{ fontSize: 20}}>List of all book Barters</Text>
                </View>
              )
              :(
@@ -88,7 +158,6 @@ const styles = StyleSheet.create({
     height:30,
     justifyContent:'center',
     alignItems:'center',
-    backgroundColor:"#ff5722",
     shadowColor: "#000",
     shadowOffset: {
        width: 0,
